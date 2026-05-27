@@ -325,16 +325,16 @@ async function readBlobSlice(blob: Blob, start: number, end: number): Promise<Ui
 }
 
 async function inflateRaw(bytes: Uint8Array): Promise<Uint8Array> {
-  const browserInflated = await inflateRawWithCompressionStream(bytes)
-
-  if (browserInflated) {
-    return browserInflated
-  }
-
   const backendInflated = await inflateRawWithNode(bytes)
 
   if (backendInflated) {
     return backendInflated
+  }
+
+  const browserInflated = await inflateRawWithCompressionStream(bytes)
+
+  if (browserInflated) {
+    return browserInflated
   }
 
   throw new Error('This runtime does not support native decompression.')
