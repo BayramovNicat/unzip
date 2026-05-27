@@ -1,6 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import { deflateRawSync } from 'node:zlib'
-import { unzip, type ZipEntry } from '@holmityd/unzip'
+import {
+  extractZipEntry,
+  extractZipEntryBlob,
+  findZipEntry,
+  listZipEntries,
+  listZipEntriesFromBlob,
+  unzip,
+  type ZipEntry,
+} from '@holmityd/unzip'
 
 type ZipFixtureEntry = {
   name: string
@@ -135,6 +143,100 @@ describe('unzip', () => {
     archive[centralOffset] = 0
 
     await expect(unzip(archive)).rejects.toThrow('The ZIP central directory is malformed.')
+  })
+
+  test('lists entries without extracting file data', () => {
+    const entries = listZipEntries(createZip([{ name: 'meta.txt', data: 'metadata only', method: 8 }]))
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0]?.name).toBe('meta.txt')
+    expect(entries[0]?.blob).toBeUndefined()
+    expect(entries[0]?.error).toBeUndefined()
+  })
+
+  test('finds one entry by exact name without extracting it', () => {
+    const entry = findZipEntry(
+      createZip([
+        { name: 'first.txt', data: 'first' },
+        { name: 'target.txt', data: 'target', method: 8 },
+      ]),
+      'target.txt',
+    )
+
+    expect(entry?.name).toBe('target.txt')
+    expect(entry?.blob).toBeUndefined()
+  })
+
+  test('extracts only the selected entry by name', async () => {
+    const entry = await extractZipEntry(
+      createZip([
+        { name: 'legacy.bin', data: 'unsupported', method: 12 },
+        { name: 'target.txt', data: 'target content', method: 8 },
+      ]),
+      'target.txt',
+    )
+
+    expect(entry?.name).toBe('target.txt')
+    expect(entry?.error).toBeUndefined()
+    await expect(blobText(entry)).resolves.toBe('target content')
+  })
+
+  test('extracts one entry by regex selector', async () => {
+    const blob = await extractZipEntryBlob(
+      createZip([
+        { name: 'a.txt', data: 'a' },
+        { name: 'nested/report.json', data: '{"ok":true}', method: 8 },
+      ]),
+      /report\.json$/,
+    )
+
+    await expect(blob?.text()).resolves.toBe('{"ok":true}')
+  })
+
+  test('extracts one entry by predicate selector', async () => {
+    const entry = await extractZipEntry(
+      createZip([
+        { name: 'small.txt', data: 'tiny' },
+        { name: 'large.txt', data: 'large text content', method: 8 },
+      ]),
+      (candidate) => candidate.uncompressedSize > 10,
+    )
+
+    expect(entry?.name).toBe('large.txt')
+    await expect(blobText(entry)).resolves.toBe('large text content')
+  })
+
+  test('returns undefined when a selected entry is missing', async () => {
+    const archive = createZip([{ name: 'exists.txt', data: 'exists' }])
+
+    expect(findZipEntry(archive, 'missing.txt')).toBeUndefined()
+    await expect(extractZipEntry(archive, 'missing.txt')).resolves.toBeUndefined()
+    await expect(extractZipEntryBlob(archive, 'missing.txt')).resolves.toBeUndefined()
+  })
+
+  test('lists entries from Blob without extracting file data', async () => {
+    const archive = new Blob([createZip([{ name: 'blob-meta.txt', data: 'blob metadata', method: 8 }])])
+    const entries = await listZipEntriesFromBlob(archive)
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0]?.name).toBe('blob-meta.txt')
+    expect(entries[0]?.blob).toBeUndefined()
+  })
+
+  test('extracts one Blob entry without reading the whole archive', async () => {
+    const archive = createZip([
+      { name: 'big-skipped.bin', data: new Uint8Array(100_000), method: 12 },
+      { name: 'target.txt', data: 'target from blob', method: 8 },
+      { name: 'ignored.txt', data: 'ignored' },
+    ])
+    const blob = new TrackingBlob([archive])
+    const entry = await extractZipEntry(blob, 'target.txt')
+
+    expect(entry?.name).toBe('target.txt')
+    expect(entry?.error).toBeUndefined()
+    await expect(blobText(entry)).resolves.toBe('target from blob')
+    expect(blob.slices.length).toBe(4)
+    expect(blob.slices.every((slice) => slice.start !== 0 || slice.end !== archive.byteLength)).toBe(true)
   })
 })
 
@@ -307,4 +409,17 @@ function findSignature(bytes: Uint8Array, signature: number): number {
   }
 
   throw new Error(`Signature ${signature.toString(16)} not found.`)
+}
+
+class TrackingBlob extends Blob {
+  slices: Array<{ start: number; end: number }> = []
+
+  override slice(start?: number, end?: number, contentType?: string): Blob {
+    this.slices.push({
+      start: start ?? 0,
+      end: end ?? this.size,
+    })
+
+    return super.slice(start, end, contentType)
+  }
 }
