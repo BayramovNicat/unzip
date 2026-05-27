@@ -13,6 +13,11 @@ export type ZipEntry = {
 export type ZipEntrySelector = string | RegExp | ((entry: ZipEntry) => boolean)
 export type ZipSource = Uint8Array | Blob
 type ZipEntrySelection = ZipEntrySelector | readonly ZipEntrySelector[]
+type CentralDirectory = {
+  bytes: Uint8Array
+  totalEntries: number
+  offset: number
+}
 type NodeZlib = {
   inflateRaw(input: Uint8Array, callback: (error: Error | null, data: Uint8Array) => void): void
 }
@@ -37,40 +42,11 @@ export async function unzip(bytes: Uint8Array): Promise<ZipEntry[]> {
 }
 
 export function listZipEntries(bytes: Uint8Array): ZipEntry[] {
-  const view = toView(bytes)
-  const eocdOffset = findEndOfCentralDirectory(view)
-  const totalEntries = view.getUint16(eocdOffset + 10, true)
-  const centralDirectoryOffset = view.getUint32(eocdOffset + 16, true)
-  const entries: ZipEntry[] = []
-  let offset = centralDirectoryOffset
-
-  for (let index = 0; index < totalEntries; index += 1) {
-    const { entry, nextOffset } = readCentralDirectoryEntry(bytes, view, offset)
-    entries.push(entry)
-    offset = nextOffset
-  }
-
-  return entries
+  return readCentralDirectoryEntries(readCentralDirectory(bytes))
 }
 
 export function findZipEntry(bytes: Uint8Array, selector: ZipEntrySelector): ZipEntry | undefined {
-  const view = toView(bytes)
-  const eocdOffset = findEndOfCentralDirectory(view)
-  const totalEntries = view.getUint16(eocdOffset + 10, true)
-  const centralDirectoryOffset = view.getUint32(eocdOffset + 16, true)
-  let offset = centralDirectoryOffset
-
-  for (let index = 0; index < totalEntries; index += 1) {
-    const { entry, nextOffset } = readCentralDirectoryEntry(bytes, view, offset)
-
-    if (matchesEntry(entry, selector)) {
-      return entry
-    }
-
-    offset = nextOffset
-  }
-
-  return undefined
+  return findCentralDirectoryEntry(readCentralDirectory(bytes), selector)
 }
 
 export async function extractZipEntry(source: ZipSource, selector: ZipEntrySelector): Promise<ZipEntry | undefined>
@@ -115,28 +91,63 @@ async function extractZipEntryFromBlob(
   return entry
 }
 
-async function extractZipEntriesFromBytes(bytes: Uint8Array, selectors: readonly ZipEntrySelector[]): Promise<ZipEntry[]> {
-  const entries = listZipEntries(bytes).filter((entry) => matchesAnyEntry(entry, selectors))
+async function extractZipEntriesFromBytes(
+  bytes: Uint8Array,
+  selectors: readonly ZipEntrySelector[],
+): Promise<ZipEntry[]> {
+  if (selectors.length === 0) {
+    return []
+  }
 
-  for (const entry of entries) {
-    if (!entry.isDirectory) {
-      await extractIntoEntry(bytes, entry)
+  const entries = readCentralDirectoryEntries(readCentralDirectory(bytes), (entry) =>
+    matchesAnyEntry(entry, selectors),
+  )
+
+  await extractEntries(entries, (entry) => extractIntoEntry(bytes, entry))
+  return entries
+}
+
+function readCentralDirectory(bytes: Uint8Array): CentralDirectory {
+  const view = toView(bytes)
+  const eocdOffset = findEndOfCentralDirectory(view)
+
+  return {
+    bytes,
+    totalEntries: view.getUint16(eocdOffset + 10, true),
+    offset: view.getUint32(eocdOffset + 16, true),
+  }
+}
+
+function readCentralDirectoryEntries(
+  centralDirectory: CentralDirectory,
+  predicate?: (entry: ZipEntry) => boolean,
+): ZipEntry[] {
+  const entries: ZipEntry[] = []
+  const view = toView(centralDirectory.bytes)
+  let offset = centralDirectory.offset
+
+  for (let index = 0; index < centralDirectory.totalEntries; index += 1) {
+    const { entry, nextOffset } = readCentralDirectoryEntry(centralDirectory.bytes, view, offset)
+
+    if (!predicate || predicate(entry)) {
+      entries.push(entry)
     }
+
+    offset = nextOffset
   }
 
   return entries
 }
 
-function findEntryInCentralDirectory(
-  bytes: Uint8Array,
-  totalEntries: number,
+function findCentralDirectoryEntry(
+  centralDirectory: CentralDirectory,
   selector: ZipEntrySelector,
 ): ZipEntry | undefined {
-  const view = toView(bytes)
-  let offset = 0
+  const view = toView(centralDirectory.bytes)
+  let offset = centralDirectory.offset
 
-  for (let index = 0; index < totalEntries; index += 1) {
-    const { entry, nextOffset } = readCentralDirectoryEntry(bytes, view, offset)
+  for (let index = 0; index < centralDirectory.totalEntries; index += 1) {
+    const { entry, nextOffset } = readCentralDirectoryEntry(centralDirectory.bytes, view, offset)
 
     if (matchesEntry(entry, selector)) {
       return entry
@@ -148,43 +159,20 @@ function findEntryInCentralDirectory(
   return undefined
 }
 
-function findEntriesInCentralDirectory(
-  bytes: Uint8Array,
-  totalEntries: number,
-  selectors: readonly ZipEntrySelector[],
-): ZipEntry[] {
-  const view = toView(bytes)
-  const entries: ZipEntry[] = []
-  let offset = 0
-
-  for (let index = 0; index < totalEntries; index += 1) {
-    const { entry, nextOffset } = readCentralDirectoryEntry(bytes, view, offset)
-
-    if (matchesAnyEntry(entry, selectors)) {
-      entries.push(entry)
-    }
-
-    offset = nextOffset
-  }
-
-  return entries
-}
-
 async function findZipEntryFromBlob(blob: Blob, selector: ZipEntrySelector): Promise<ZipEntry | undefined> {
-  const centralDirectory = await readBlobCentralDirectory(blob)
-  return findEntryInCentralDirectory(centralDirectory.bytes, centralDirectory.totalEntries, selector)
+  return findCentralDirectoryEntry(await readBlobCentralDirectory(blob), selector)
 }
 
 async function extractZipEntriesFromBlob(blob: Blob, selectors: readonly ZipEntrySelector[]): Promise<ZipEntry[]> {
-  const centralDirectory = await readBlobCentralDirectory(blob)
-  const entries = findEntriesInCentralDirectory(centralDirectory.bytes, centralDirectory.totalEntries, selectors)
-
-  for (const entry of entries) {
-    if (!entry.isDirectory) {
-      await extractBlobIntoEntry(blob, entry)
-    }
+  if (selectors.length === 0) {
+    return []
   }
 
+  const entries = readCentralDirectoryEntries(await readBlobCentralDirectory(blob), (entry) =>
+    matchesAnyEntry(entry, selectors),
+  )
+
+  await extractEntries(entries, (entry) => extractBlobIntoEntry(blob, entry))
   return entries
 }
 
@@ -261,6 +249,14 @@ async function extractBlobIntoEntry(blob: Blob, entry: ZipEntry): Promise<void> 
   }
 }
 
+async function extractEntries(entries: ZipEntry[], extract: (entry: ZipEntry) => Promise<void>): Promise<void> {
+  for (const entry of entries) {
+    if (!entry.isDirectory) {
+      await extract(entry)
+    }
+  }
+}
+
 async function extractBlobEntryBytes(blob: Blob, entry: ZipEntry): Promise<Uint8Array> {
   const fixedHeader = await readBlobSlice(blob, entry.localHeaderOffset, entry.localHeaderOffset + 30)
   const fixedHeaderView = toView(fixedHeader)
@@ -307,7 +303,7 @@ function isSelectorArray(selector: ZipEntrySelection): selector is readonly ZipE
   return Array.isArray(selector)
 }
 
-async function readBlobCentralDirectory(blob: Blob): Promise<{ bytes: Uint8Array; totalEntries: number }> {
+async function readBlobCentralDirectory(blob: Blob): Promise<CentralDirectory> {
   const tailLength = Math.min(blob.size, maxCommentLength + endOfCentralDirectoryLength)
   const tailStart = blob.size - tailLength
   const tail = await readBlobSlice(blob, tailStart, blob.size)
@@ -320,6 +316,7 @@ async function readBlobCentralDirectory(blob: Blob): Promise<{ bytes: Uint8Array
   return {
     bytes: await readBlobSlice(blob, centralDirectoryOffset, centralDirectoryOffset + centralDirectorySize),
     totalEntries,
+    offset: 0,
   }
 }
 
@@ -383,7 +380,7 @@ async function loadNodeZlib(): Promise<NodeZlib | undefined> {
   const specifier = 'node:zlib'
 
   try {
-    return (await import(specifier)) as NodeZlib
+    return (await import(/* @vite-ignore */ specifier)) as NodeZlib
   } catch {
     return undefined
   }
@@ -406,9 +403,9 @@ function hasBlobConstructor(): boolean {
 }
 
 function findEndOfCentralDirectory(view: DataView): number {
-  const minOffset = Math.max(0, view.byteLength - maxCommentLength - 22)
+  const minOffset = Math.max(0, view.byteLength - maxCommentLength - endOfCentralDirectoryLength)
 
-  for (let offset = view.byteLength - 22; offset >= minOffset; offset -= 1) {
+  for (let offset = view.byteLength - endOfCentralDirectoryLength; offset >= minOffset; offset -= 1) {
     if (view.getUint32(offset, true) === eocdSignature) {
       return offset
     }
