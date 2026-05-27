@@ -12,6 +12,7 @@ export type ZipEntry = {
 
 export type ZipEntrySelector = string | RegExp | ((entry: ZipEntry) => boolean)
 export type ZipSource = Uint8Array | Blob
+type ZipEntrySelection = ZipEntrySelector | readonly ZipEntrySelector[]
 type NodeZlib = {
   inflateRaw(input: Uint8Array, callback: (error: Error | null, data: Uint8Array) => void): void
 }
@@ -72,9 +73,18 @@ export function findZipEntry(bytes: Uint8Array, selector: ZipEntrySelector): Zip
   return undefined
 }
 
-export async function extractZipEntry(source: ZipSource, selector: ZipEntrySelector): Promise<ZipEntry | undefined> {
+export async function extractZipEntry(source: ZipSource, selector: ZipEntrySelector): Promise<ZipEntry | undefined>
+export async function extractZipEntry(source: ZipSource, selector: readonly ZipEntrySelector[]): Promise<ZipEntry[]>
+export async function extractZipEntry(
+  source: ZipSource,
+  selector: ZipEntrySelection,
+): Promise<ZipEntry | ZipEntry[] | undefined> {
   if (isBlob(source)) {
     return extractZipEntryFromBlob(source, selector)
+  }
+
+  if (isSelectorArray(selector)) {
+    return extractZipEntriesFromBytes(source, selector)
   }
 
   const entry = findZipEntry(source, selector)
@@ -87,7 +97,14 @@ export async function extractZipEntry(source: ZipSource, selector: ZipEntrySelec
   return entry
 }
 
-async function extractZipEntryFromBlob(blob: Blob, selector: ZipEntrySelector): Promise<ZipEntry | undefined> {
+async function extractZipEntryFromBlob(
+  blob: Blob,
+  selector: ZipEntrySelection,
+): Promise<ZipEntry | ZipEntry[] | undefined> {
+  if (isSelectorArray(selector)) {
+    return extractZipEntriesFromBlob(blob, selector)
+  }
+
   const entry = await findZipEntryFromBlob(blob, selector)
 
   if (!entry || entry.isDirectory) {
@@ -96,6 +113,18 @@ async function extractZipEntryFromBlob(blob: Blob, selector: ZipEntrySelector): 
 
   await extractBlobIntoEntry(blob, entry)
   return entry
+}
+
+async function extractZipEntriesFromBytes(bytes: Uint8Array, selectors: readonly ZipEntrySelector[]): Promise<ZipEntry[]> {
+  const entries = listZipEntries(bytes).filter((entry) => matchesAnyEntry(entry, selectors))
+
+  for (const entry of entries) {
+    if (!entry.isDirectory) {
+      await extractIntoEntry(bytes, entry)
+    }
+  }
+
+  return entries
 }
 
 function findEntryInCentralDirectory(
@@ -119,9 +148,44 @@ function findEntryInCentralDirectory(
   return undefined
 }
 
+function findEntriesInCentralDirectory(
+  bytes: Uint8Array,
+  totalEntries: number,
+  selectors: readonly ZipEntrySelector[],
+): ZipEntry[] {
+  const view = toView(bytes)
+  const entries: ZipEntry[] = []
+  let offset = 0
+
+  for (let index = 0; index < totalEntries; index += 1) {
+    const { entry, nextOffset } = readCentralDirectoryEntry(bytes, view, offset)
+
+    if (matchesAnyEntry(entry, selectors)) {
+      entries.push(entry)
+    }
+
+    offset = nextOffset
+  }
+
+  return entries
+}
+
 async function findZipEntryFromBlob(blob: Blob, selector: ZipEntrySelector): Promise<ZipEntry | undefined> {
   const centralDirectory = await readBlobCentralDirectory(blob)
   return findEntryInCentralDirectory(centralDirectory.bytes, centralDirectory.totalEntries, selector)
+}
+
+async function extractZipEntriesFromBlob(blob: Blob, selectors: readonly ZipEntrySelector[]): Promise<ZipEntry[]> {
+  const centralDirectory = await readBlobCentralDirectory(blob)
+  const entries = findEntriesInCentralDirectory(centralDirectory.bytes, centralDirectory.totalEntries, selectors)
+
+  for (const entry of entries) {
+    if (!entry.isDirectory) {
+      await extractBlobIntoEntry(blob, entry)
+    }
+  }
+
+  return entries
 }
 
 function readCentralDirectoryEntry(
@@ -233,6 +297,14 @@ function matchesEntry(entry: ZipEntry, selector: ZipEntrySelector): boolean {
   }
 
   return selector(entry)
+}
+
+function matchesAnyEntry(entry: ZipEntry, selectors: readonly ZipEntrySelector[]): boolean {
+  return selectors.some((selector) => matchesEntry(entry, selector))
+}
+
+function isSelectorArray(selector: ZipEntrySelection): selector is readonly ZipEntrySelector[] {
+  return Array.isArray(selector)
 }
 
 async function readBlobCentralDirectory(blob: Blob): Promise<{ bytes: Uint8Array; totalEntries: number }> {

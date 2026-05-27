@@ -201,6 +201,20 @@ describe('unzip', () => {
     expect(entry?.bytes).toEqual(textEncoder.encode('backend bytes'))
   })
 
+  test('extracts selected entries from an array of selectors', async () => {
+    const entries = await extractZipEntry(
+      createZip([
+        { name: 'a.txt', data: 'a' },
+        { name: 'b.txt', data: 'b', method: 8 },
+        { name: 'nested/c.txt', data: 'c' },
+      ]),
+      ['a.txt', /c\.txt$/],
+    )
+
+    expect(entries.map((entry) => entry.name)).toEqual(['a.txt', 'nested/c.txt'])
+    await expect(Promise.all(entries.map(blobText))).resolves.toEqual(['a', 'c'])
+  })
+
   test('extracts one entry by predicate selector', async () => {
     const entry = await extractZipEntry(
       createZip([
@@ -235,6 +249,19 @@ describe('unzip', () => {
     await expect(blobText(entry)).resolves.toBe('target from blob')
     expect(blob.slices.length).toBe(4)
     expect(blob.slices.every((slice) => slice.start !== 0 || slice.end !== archive.byteLength)).toBe(true)
+  })
+
+  test('extracts selected Blob entries from an array of selectors', async () => {
+    const archive = createZip([
+      { name: 'one.txt', data: 'one' },
+      { name: 'two.txt', data: 'two', method: 8 },
+      { name: 'three.txt', data: 'three' },
+    ])
+    const blob = new Blob([copyBytes(archive)])
+    const entries = await extractZipEntry(blob, ['one.txt', 'three.txt'])
+
+    expect(entries.map((entry) => entry.name)).toEqual(['one.txt', 'three.txt'])
+    await expect(Promise.all(entries.map(blobText))).resolves.toEqual(['one', 'three'])
   })
 })
 

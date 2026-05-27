@@ -34,6 +34,16 @@ if (entry?.bytes) {
 }
 ```
 
+Extract a few files:
+
+```ts
+const entries = await extractZipEntry(zipBytes, ['a.txt', 'b.txt', /docs\/.+\.md$/])
+
+for (const entry of entries) {
+  console.log(entry.name, entry.bytes)
+}
+```
+
 Use a browser `File` or any `Blob`:
 
 ```ts
@@ -79,11 +89,18 @@ const entry = findZipEntry(zipBytes, /package\.json$/)
 
 ```ts
 function extractZipEntry(source: ZipSource, selector: ZipEntrySelector): Promise<ZipEntry | undefined>
+function extractZipEntry(source: ZipSource, selector: readonly ZipEntrySelector[]): Promise<ZipEntry[]>
 ```
 
-Finds and extracts the first matching entry.
+Finds and extracts matching entries.
 
-`source` can be `Uint8Array` or `Blob`. Returns `undefined` when no entry matches. Directory entries are returned without file data.
+`source` can be `Uint8Array` or `Blob`.
+
+Pass one selector to extract the first matching entry. It returns `undefined` when no entry matches.
+
+Pass an array of selectors to extract every entry that matches any selector. It returns entries in archive order. Missing matches are skipped.
+
+Directory entries are returned without file data.
 
 ## Types
 
@@ -109,7 +126,7 @@ type ZipEntry = {
 type ZipEntrySelector = string | RegExp | ((entry: ZipEntry) => boolean)
 ```
 
-Selectors match one entry:
+Selectors match entries:
 
 - `string`: exact `entry.name`
 - `RegExp`: tested against `entry.name`
