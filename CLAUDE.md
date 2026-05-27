@@ -1,0 +1,58 @@
+# Frontend Code Style
+
+This project is a tiny TypeScript-first DOM rendering library. Write frontend code in the local Litcode style: template literals, typed components, Tailwind utilities, and small reactive primitives. Do not introduce React, JSX, Svelte, Vue, or a new component runtime unless the task explicitly asks for it.
+
+## Project Shape
+
+- Use `html`, `component`, `repeat`, `$state`, `$derived`, `$effect`, `cn`, `tv`, and `VariantProps` from `@holmityd/litcode`, `@/lib`, or the nearest existing local lib import.
+- Prefer the package entrypoint in example app code, but preserve a file's existing relative import style when editing package internals.
+- Example app components live in `apps/examples/src/components` and should export their prop type plus the component function.
+- Demo or app-facing code belongs in `apps/examples/src/main.ts`; reusable rendering behavior belongs in `packages/litcode/src/lib`.
+- Build DOM structure with the `html` tagged template. Avoid browser `document.createElement(...)` in components and app code; reserve manual element creation for renderer internals, tests, or unavoidable browser API integration.
+
+## Components
+
+- Use `component(...)` for reusable UI components, controls, and any view function whose root element should accept native DOM props, events, `children`, `dataset`, or `style`.
+- Plain render helper functions are fine for local markup helpers that do not need prop typing or root prop forwarding.
+- Return `View` from component render functions when the return type is not obvious.
+- Define DOM-backed props with `Props<Partial<HTML...Element>>`, or `Props<Omit<Partial<HTML...Element>, 'conflictingProp'>>` when the component owns a prop name.
+- Use `component<Props>((props = {}): View => ...)` for components whose root element should receive DOM props automatically.
+- Destructure only the props the component consumes; let `component` apply remaining native DOM props to the first rendered element.
+- Do not duplicate native attributes or events in dynamic components. Props such as `onclick`, `oninput`, `id`, `title`, `disabled`, `value`, `name`, `aria*`, and other standard HTML properties should come from `Props<Partial<HTML...Element>>` and be forwarded by `component`.
+- Only add explicit component props for behavior the component owns, such as `variant`, `size`, controlled data transformations, or prop names that conflict with native DOM props.
+- Render children with `${children ?? ''}` so absent children do not become visible text.
+- Use semantic HTML first. Add `type="button"` on non-submit buttons, labels for form controls, and `aria-label` on icon-only controls.
+- Keep event handlers as interpolated functions, for example `onclick="${handler}"` or `onclick=${handler}`. Do not use string event handlers.
+- For lists, use `repeat(items, keyFn, renderFn)` or a stable `key` attribute so DOM nodes are preserved across updates.
+
+## Styling
+
+- Style with Tailwind v4 utility classes and tokens from `apps/examples/src/style.css`.
+- Compose class strings with `cn(...)`; pass caller `className` last so consumers can override conflicting utilities.
+- Use `tv(...)` plus `VariantProps<typeof variants>` for components with variants or sizes.
+- Keep state classes complete: hover, disabled, focus-visible, aria-invalid, and dark-mode states should be considered for interactive controls.
+- Prefer existing radius, color, border, shadow, and ring tokens over hard-coded custom CSS.
+- Put broad theme tokens, base layer rules, and custom utilities in `apps/examples/src/style.css`; keep component-specific styling close to the component as Tailwind classes.
+- Avoid inline `style` except when forwarding the native `style` prop or applying truly dynamic values.
+
+## Reactivity And DOM Behavior
+
+- Use `$state` for mutable local state, `$derived` for computed state, and `$effect` for side effects.
+- Prefer passing signals or reactive getter functions into `html` templates over manually syncing DOM text, attributes, or classes.
+- Do not introduce ad-hoc stores, observers, or module-level mutable UI state when the provided signals express the state clearly.
+- Return cleanup functions from `$effect` when adding listeners, timers, observers, or external resources.
+- Do not mutate DOM behind the renderer unless the behavior needs an imperative browser API, such as `HTMLDialogElement.showModal()` or lazy image loading.
+- Preserve focus, selection, and existing DOM nodes when changing renderer or component behavior.
+
+## TypeScript
+
+- Keep the code erasable and runtime-light: avoid enums, namespaces, decorators, and other syntax that conflicts with `erasableSyntaxOnly`.
+- Prefer explicit exported types for public component and library APIs.
+- Use narrow DOM types at boundaries, for example `HTMLButtonElement`, `HTMLSelectElement`, or `HTMLImageElement`.
+- Avoid `any`; use `unknown`, generics, or DOM types when possible.
+- Keep comments sparse and useful; explain non-obvious browser or reconciliation behavior rather than restating the code.
+
+## Formatting
+
+- Do not run format checks, tests, builds, browser checks, or other verification commands unless explicitly requested.
+- Leave verification to the user by default.

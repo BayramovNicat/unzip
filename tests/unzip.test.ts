@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { deflateRawSync } from 'node:zlib'
-import { unzip, type ZipEntry } from '@side/unzip'
+import { unzip, type ZipEntry } from '@holmityd/unzip'
 
 type ZipFixtureEntry = {
   name: string
