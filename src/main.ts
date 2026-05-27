@@ -1,5 +1,5 @@
 import './style.css'
-import { unzip, type ZipEntry } from './unzip'
+import { unzip, type ZipEntry } from '@side/unzip'
 
 document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
 <main class="app-shell">
