@@ -1,16 +1,40 @@
+/**
+ * Metadata and optional extracted data for one ZIP archive entry.
+ *
+ * Extracted file entries always receive `bytes`. Browser extractions also
+ * receive `blob`. Directory entries and failed file extractions do not receive
+ * file data.
+ */
 export type ZipEntry = {
+  /** Path stored in the ZIP archive. */
   name: string
+  /** Compressed byte length from the central directory. */
   compressedSize: number
+  /** Uncompressed byte length from the central directory. */
   uncompressedSize: number
+  /** ZIP compression method. Methods `0` stored and `8` deflated are supported. */
   method: number
+  /** Byte offset of the entry's local file header in the archive. */
   localHeaderOffset: number
+  /** Whether this entry is a directory, based on a trailing `/` in `name`. */
   isDirectory: boolean
+  /** Extracted file bytes, present after successful extraction. */
   bytes?: Uint8Array
+  /** Extracted file data as a browser `Blob`, present only in browser-like runtimes. */
   blob?: Blob
+  /** Per-entry extraction error, present when metadata was read but extraction failed. */
   error?: string
 }
 
+/**
+ * Selects a ZIP entry by exact name, regular expression, or predicate.
+ *
+ * Regular expression selectors are tested against `ZipEntry.name`. Predicate
+ * selectors receive entry metadata before extraction.
+ */
 export type ZipEntrySelector = string | RegExp | ((entry: ZipEntry) => boolean)
+
+/** ZIP input accepted by extraction APIs. */
 export type ZipSource = Uint8Array | Blob
 type ZipEntrySelection = ZipEntrySelector | readonly ZipEntrySelector[]
 type CentralDirectory = {
@@ -34,6 +58,12 @@ const centralDirectorySignature = 0x02014b50
 const localFileSignature = 0x04034b50
 let nodeZlibPromise: Promise<NodeZlib | undefined> | undefined
 
+/**
+ * Lists and extracts every non-directory entry from ZIP bytes.
+ *
+ * Entries are returned in archive order. File-level extraction failures are
+ * stored on the affected `ZipEntry.error`; malformed archive structures throw.
+ */
 export async function unzip(bytes: Uint8Array): Promise<ZipEntry[]> {
   const entries = listZipEntries(bytes)
 
@@ -41,15 +71,40 @@ export async function unzip(bytes: Uint8Array): Promise<ZipEntry[]> {
   return entries
 }
 
+/**
+ * Lists ZIP entries from bytes without extracting file data.
+ *
+ * Returned entries include metadata only. Invalid ZIP input or malformed
+ * central-directory data throws.
+ */
 export function listZipEntries(bytes: Uint8Array): ZipEntry[] {
   return readCentralDirectoryEntries(readCentralDirectory(bytes))
 }
 
+/**
+ * Finds the first ZIP entry matching a selector without extracting file data.
+ *
+ * Returns `undefined` when no entry matches.
+ */
 export function findZipEntry(bytes: Uint8Array, selector: ZipEntrySelector): ZipEntry | undefined {
   return findCentralDirectoryEntry(readCentralDirectory(bytes), selector)
 }
 
+/**
+ * Finds and extracts the first matching entry from bytes or a Blob.
+ *
+ * Returns `undefined` when no entry matches. Directory entries are returned
+ * without file data. File-level extraction failures are returned as
+ * `ZipEntry.error`.
+ */
 export async function extractZipEntry(source: ZipSource, selector: ZipEntrySelector): Promise<ZipEntry | undefined>
+/**
+ * Finds and extracts every entry matching any selector from bytes or a Blob.
+ *
+ * Results are returned in archive order. Missing selectors are skipped.
+ * Directory entries are returned without file data. File-level extraction
+ * failures are returned as `ZipEntry.error`.
+ */
 export async function extractZipEntry(source: ZipSource, selector: readonly ZipEntrySelector[]): Promise<ZipEntry[]>
 export async function extractZipEntry(
   source: ZipSource,
