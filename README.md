@@ -158,6 +158,14 @@ bun run bench
 
 The benchmark script measures listing, finding first and last entries, extracting one entry, extracting a few selected entries, and unzipping all entries from generated ZIP archives.
 
+## Vercel Deploy
+
+This repository includes a `vercel.json` for the example app:
+
+- Install command: `bun install --frozen-lockfile`
+- Build command: `bun run build`
+- Output directory: `dist`
+
 ## Publishing
 
 ```sh
