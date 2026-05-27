@@ -18,6 +18,10 @@ type CentralDirectory = {
   totalEntries: number
   offset: number
 }
+type SelectorMatcher = {
+  names: Set<string>
+  selectors: ZipEntrySelector[]
+}
 type NodeZlib = {
   inflateRaw(input: Uint8Array, callback: (error: Error | null, data: Uint8Array) => void): void
 }
@@ -95,8 +99,9 @@ async function extractZipEntriesFromBytes(
     return []
   }
 
+  const matcher = createSelectorMatcher(selectors)
   const entries = readCentralDirectoryEntries(readCentralDirectory(bytes), (entry) =>
-    matchesAnyEntry(entry, selectors),
+    matchesSelectorMatcher(entry, matcher),
   )
 
   await extractEntries(entries, (entry) => extractIntoEntry(bytes, entry))
@@ -164,8 +169,9 @@ async function extractZipEntriesFromBlob(blob: Blob, selectors: readonly ZipEntr
     return []
   }
 
+  const matcher = createSelectorMatcher(selectors)
   const entries = readCentralDirectoryEntries(await readBlobCentralDirectory(blob), (entry) =>
-    matchesAnyEntry(entry, selectors),
+    matchesSelectorMatcher(entry, matcher),
   )
 
   await extractEntries(entries, (entry) => extractBlobIntoEntry(blob, entry))
@@ -287,8 +293,23 @@ function matchesEntry(entry: ZipEntry, selector: ZipEntrySelector): boolean {
   return selector(entry)
 }
 
-function matchesAnyEntry(entry: ZipEntry, selectors: readonly ZipEntrySelector[]): boolean {
-  return selectors.some((selector) => matchesEntry(entry, selector))
+function createSelectorMatcher(selectors: readonly ZipEntrySelector[]): SelectorMatcher {
+  const names = new Set<string>()
+  const rest: ZipEntrySelector[] = []
+
+  for (const selector of selectors) {
+    if (typeof selector === 'string') {
+      names.add(selector)
+    } else {
+      rest.push(selector)
+    }
+  }
+
+  return { names, selectors: rest }
+}
+
+function matchesSelectorMatcher(entry: ZipEntry, matcher: SelectorMatcher): boolean {
+  return matcher.names.has(entry.name) || matcher.selectors.some((selector) => matchesEntry(entry, selector))
 }
 
 function isSelectorArray(selector: ZipEntrySelection): selector is readonly ZipEntrySelector[] {
