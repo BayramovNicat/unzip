@@ -215,6 +215,84 @@ describe('unzip', () => {
     await expect(Promise.all(entries.map(blobText))).resolves.toEqual(['a', 'c'])
   })
 
+  test('returns an empty list for an empty selector array', async () => {
+    const entries = await extractZipEntry(createZip([{ name: 'a.txt', data: 'a' }]), [])
+
+    expect(entries).toEqual([])
+  })
+
+  test('skips missing selectors when extracting from an array', async () => {
+    const entries = await extractZipEntry(
+      createZip([
+        { name: 'a.txt', data: 'a' },
+        { name: 'b.txt', data: 'b' },
+      ]),
+      ['missing.txt', 'b.txt'],
+    )
+
+    expect(entries.map((entry) => entry.name)).toEqual(['b.txt'])
+    await expect(Promise.all(entries.map(blobText))).resolves.toEqual(['b'])
+  })
+
+  test('does not duplicate entries when multiple selectors match the same file', async () => {
+    const entries = await extractZipEntry(
+      createZip([
+        { name: 'a.txt', data: 'a' },
+        { name: 'b.txt', data: 'b' },
+      ]),
+      ['a.txt', /\.txt$/],
+    )
+
+    expect(entries.map((entry) => entry.name)).toEqual(['a.txt', 'b.txt'])
+  })
+
+  test('supports predicate selectors in readonly selector arrays', async () => {
+    const selectors = ['alpha.txt', (entry: ZipEntry) => entry.name === 'gamma.txt'] as const
+    const entries = await extractZipEntry(
+      createZip([
+        { name: 'alpha.txt', data: 'alpha' },
+        { name: 'beta.txt', data: 'beta' },
+        { name: 'gamma.txt', data: 'gamma' },
+      ]),
+      selectors,
+    )
+
+    expect(entries.map((entry) => entry.name)).toEqual(['alpha.txt', 'gamma.txt'])
+    await expect(Promise.all(entries.map(blobText))).resolves.toEqual(['alpha', 'gamma'])
+  })
+
+  test('returns selected directories without extracted data', async () => {
+    const entries = await extractZipEntry(
+      createZip([
+        { name: 'folder/' },
+        { name: 'folder/file.txt', data: 'file' },
+      ]),
+      ['folder/', 'folder/file.txt'],
+    )
+
+    expect(entries.map((entry) => entry.name)).toEqual(['folder/', 'folder/file.txt'])
+    expect(entries[0]?.isDirectory).toBe(true)
+    expect(entries[0]?.bytes).toBeUndefined()
+    expect(entries[0]?.blob).toBeUndefined()
+    await expect(blobText(entries[1])).resolves.toBe('file')
+  })
+
+  test('reports unsupported compression for selected entries in an array', async () => {
+    const entries = await extractZipEntry(
+      createZip([
+        { name: 'legacy.bin', data: 'legacy', method: 12 },
+        { name: 'ok.txt', data: 'ok' },
+      ]),
+      ['legacy.bin', 'ok.txt'],
+    )
+
+    expect(entries.map((entry) => entry.name)).toEqual(['legacy.bin', 'ok.txt'])
+    expect(entries[0]?.bytes).toBeUndefined()
+    expect(entries[0]?.blob).toBeUndefined()
+    expect(entries[0]?.error).toBe('Compression method 12 is not supported.')
+    await expect(blobText(entries[1])).resolves.toBe('ok')
+  })
+
   test('extracts one entry by predicate selector', async () => {
     const entry = await extractZipEntry(
       createZip([
@@ -262,6 +340,30 @@ describe('unzip', () => {
 
     expect(entries.map((entry) => entry.name)).toEqual(['one.txt', 'three.txt'])
     await expect(Promise.all(entries.map(blobText))).resolves.toEqual(['one', 'three'])
+  })
+
+  test('handles empty and missing selector arrays for Blob entries', async () => {
+    const archive = createZip([{ name: 'exists.txt', data: 'exists' }])
+    const blob = new Blob([copyBytes(archive)])
+
+    await expect(extractZipEntry(blob, [])).resolves.toEqual([])
+    await expect(extractZipEntry(blob, ['missing.txt'])).resolves.toEqual([])
+  })
+
+  test('returns selected Blob directories and extraction errors in arrays', async () => {
+    const archive = createZip([
+      { name: 'folder/' },
+      { name: 'legacy.bin', data: 'legacy', method: 12 },
+      { name: 'folder/file.txt', data: 'file' },
+    ])
+    const blob = new Blob([copyBytes(archive)])
+    const entries = await extractZipEntry(blob, ['folder/', 'legacy.bin', 'folder/file.txt'])
+
+    expect(entries.map((entry) => entry.name)).toEqual(['folder/', 'legacy.bin', 'folder/file.txt'])
+    expect(entries[0]?.bytes).toBeUndefined()
+    expect(entries[0]?.blob).toBeUndefined()
+    expect(entries[1]?.error).toBe('Compression method 12 is not supported.')
+    await expect(blobText(entries[2])).resolves.toBe('file')
   })
 })
 
