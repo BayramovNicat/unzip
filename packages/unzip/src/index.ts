@@ -28,6 +28,7 @@ const endOfCentralDirectoryLength = 22
 const eocdSignature = 0x06054b50
 const centralDirectorySignature = 0x02014b50
 const localFileSignature = 0x04034b50
+let nodeZlibPromise: Promise<NodeZlib | undefined> | undefined
 
 export async function unzip(bytes: Uint8Array): Promise<ZipEntry[]> {
   const entries = listZipEntries(bytes)
@@ -377,6 +378,11 @@ async function inflateRawWithNode(bytes: Uint8Array): Promise<Uint8Array | undef
 }
 
 async function loadNodeZlib(): Promise<NodeZlib | undefined> {
+  nodeZlibPromise ??= importNodeZlib()
+  return nodeZlibPromise
+}
+
+async function importNodeZlib(): Promise<NodeZlib | undefined> {
   const specifier = 'node:zlib'
 
   try {
