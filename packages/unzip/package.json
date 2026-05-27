@@ -1,10 +1,44 @@
 {
   "name": "@holmityd/unzip",
-  "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "A tiny TypeScript ZIP reader for browsers and backend runtimes.",
   "type": "module",
-  "exports": {
-    ".": "./src/index.ts"
+  "license": "MIT",
+  "author": "Nicat Bayramov",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BayramovNicat/unzip.git",
+    "directory": "packages/unzip"
   },
-  "types": "./src/index.ts"
+  "bugs": {
+    "url": "https://github.com/BayramovNicat/unzip/issues"
+  },
+  "homepage": "https://github.com/BayramovNicat/unzip#readme",
+  "keywords": [
+    "zip",
+    "unzip",
+    "archive",
+    "decompression",
+    "typescript"
+  ],
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepack": "bun run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
 }

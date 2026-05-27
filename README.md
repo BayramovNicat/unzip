@@ -4,6 +4,10 @@ A tiny TypeScript ZIP reader for browsers and backend runtimes.
 
 It can list files, find one file, or extract ZIP entries. File data is returned on each extracted entry as `bytes`, and also as `blob` in browsers.
 
+```sh
+npm install @holmityd/unzip
+```
+
 ```ts
 import { extractZipEntry, findZipEntry, listZipEntries, unzip } from '@holmityd/unzip'
 ```
@@ -153,3 +157,12 @@ bun run bench
 ```
 
 The benchmark script measures listing, finding first and last entries, extracting one entry, extracting a few selected entries, and unzipping all entries from generated ZIP archives.
+
+## Publishing
+
+```sh
+bun run --cwd packages/unzip build
+cd packages/unzip
+npm pack --dry-run
+npm publish
+```

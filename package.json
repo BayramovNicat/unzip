@@ -9,9 +9,9 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
-    "bench": "bun run benchmarks/unzip.bench.ts",
-    "test": "bun test",
+    "build": "bun run --cwd packages/unzip build && tsc && vite build",
+    "bench": "bun run --cwd packages/unzip build && bun run benchmarks/unzip.bench.ts",
+    "test": "bun run --cwd packages/unzip build && bun test",
     "preview": "vite preview"
   },
   "devDependencies": {
