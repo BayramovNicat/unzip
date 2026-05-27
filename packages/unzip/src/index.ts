@@ -33,12 +33,7 @@ let nodeZlibPromise: Promise<NodeZlib | undefined> | undefined
 export async function unzip(bytes: Uint8Array): Promise<ZipEntry[]> {
   const entries = listZipEntries(bytes)
 
-  for (const entry of entries) {
-    if (!entry.isDirectory) {
-      await extractIntoEntry(bytes, entry)
-    }
-  }
-
+  await extractEntries(entries, (entry) => extractIntoEntry(bytes, entry))
   return entries
 }
 
@@ -251,11 +246,7 @@ async function extractBlobIntoEntry(blob: Blob, entry: ZipEntry): Promise<void> 
 }
 
 async function extractEntries(entries: ZipEntry[], extract: (entry: ZipEntry) => Promise<void>): Promise<void> {
-  for (const entry of entries) {
-    if (!entry.isDirectory) {
-      await extract(entry)
-    }
-  }
+  await Promise.all(entries.filter((entry) => !entry.isDirectory).map(extract))
 }
 
 async function extractBlobEntryBytes(blob: Blob, entry: ZipEntry): Promise<Uint8Array> {
