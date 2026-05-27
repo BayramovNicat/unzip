@@ -395,7 +395,7 @@ async function importNodeZlib(): Promise<NodeZlib | undefined> {
 function setEntryBytes(entry: ZipEntry, bytes: Uint8Array): void {
   entry.bytes = bytes
 
-  if (hasBlobConstructor()) {
+  if (canCreateEntryBlob()) {
     entry.blob = new Blob([copyBytes(bytes)])
   }
 }
@@ -406,6 +406,10 @@ function isBlob(source: ZipSource): source is Blob {
 
 function hasBlobConstructor(): boolean {
   return typeof Blob !== 'undefined'
+}
+
+function canCreateEntryBlob(): boolean {
+  return hasBlobConstructor() && typeof window !== 'undefined'
 }
 
 function findEndOfCentralDirectory(view: DataView): number {

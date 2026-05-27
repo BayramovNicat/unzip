@@ -2,7 +2,7 @@
 
 A tiny TypeScript ZIP reader for browsers and backend runtimes.
 
-It can list files, find one file, or extract ZIP entries. File data is returned on each extracted entry as `bytes`, and also as `blob` when the runtime supports `Blob`.
+It can list files, find one file, or extract ZIP entries. File data is returned on each extracted entry as `bytes`, and also as `blob` in browsers.
 
 ```ts
 import { extractZipEntry, findZipEntry, listZipEntries, unzip } from '@holmityd/unzip'
@@ -61,7 +61,7 @@ function unzip(bytes: Uint8Array): Promise<ZipEntry[]>
 
 Lists and extracts every non-directory entry from ZIP bytes.
 
-Successful file entries include `entry.bytes`. They also include `entry.blob` when `Blob` exists. If one file cannot be extracted, that entry is still returned with `entry.error`.
+Successful file entries include `entry.bytes`. They also include `entry.blob` in browsers. If one file cannot be extracted, that entry is still returned with `entry.error`.
 
 ### `listZipEntries(bytes)`
 

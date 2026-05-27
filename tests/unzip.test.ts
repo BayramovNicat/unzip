@@ -35,7 +35,7 @@ describe('unzip', () => {
     expect(entry?.compressedSize).toBe(11)
     expect(entry?.uncompressedSize).toBe(11)
     expect(entry?.error).toBeUndefined()
-    await expect(blobText(entry)).resolves.toBe('hello world')
+    await expect(entryText(entry)).resolves.toBe('hello world')
   })
 
   test('extracts a deflated text file', async () => {
@@ -44,7 +44,7 @@ describe('unzip', () => {
     expect(entry?.method).toBe(8)
     expect(entry?.compressedSize).toBeLessThan(entry?.uncompressedSize ?? 0)
     expect(entry?.error).toBeUndefined()
-    await expect(blobText(entry)).resolves.toBe('repeat repeat repeat repeat')
+    await expect(entryText(entry)).resolves.toBe('repeat repeat repeat repeat')
   })
 
   test('extracts binary bytes without text conversion', async () => {
@@ -52,7 +52,7 @@ describe('unzip', () => {
     const [entry] = await unzip(createZip([{ name: 'image.bin', data: bytes }]))
 
     expect(entry?.bytes).toEqual(bytes)
-    await expect(blobBytes(entry)).resolves.toEqual(bytes)
+    await expect(entryBytes(entry)).resolves.toEqual(bytes)
   })
 
   test('extracts zero-byte files', async () => {
@@ -60,7 +60,7 @@ describe('unzip', () => {
 
     expect(entry?.compressedSize).toBe(0)
     expect(entry?.uncompressedSize).toBe(0)
-    await expect(blobText(entry)).resolves.toBe('')
+    await expect(entryText(entry)).resolves.toBe('')
   })
 
   test('keeps directories as entries without creating blobs', async () => {
@@ -69,7 +69,7 @@ describe('unzip', () => {
     expect(entries.map((entry) => entry.name)).toEqual(['folder/', 'folder/file.txt'])
     expect(entries[0]?.isDirectory).toBe(true)
     expect(entries[0]?.blob).toBeUndefined()
-    await expect(blobText(entries[1])).resolves.toBe('nested')
+    await expect(entryText(entries[1])).resolves.toBe('nested')
   })
 
   test('preserves archive order for multiple files', async () => {
@@ -82,14 +82,14 @@ describe('unzip', () => {
     )
 
     expect(entries.map((entry) => entry.name)).toEqual(['a.txt', 'b.txt', 'c.txt'])
-    await expect(Promise.all(entries.map(blobText))).resolves.toEqual(['a', 'b', 'c'])
+    await expect(Promise.all(entries.map(entryText))).resolves.toEqual(['a', 'b', 'c'])
   })
 
   test('handles unicode filenames', async () => {
     const [entry] = await unzip(createZip([{ name: 'notes/çay.txt', data: 'Baku' }]))
 
     expect(entry?.name).toBe('notes/çay.txt')
-    await expect(blobText(entry)).resolves.toBe('Baku')
+    await expect(entryText(entry)).resolves.toBe('Baku')
   })
 
   test('handles local and central extra fields', async () => {
@@ -98,14 +98,14 @@ describe('unzip', () => {
     )
 
     expect(entry?.name).toBe('extra.txt')
-    await expect(blobText(entry)).resolves.toBe('extra data')
+    await expect(entryText(entry)).resolves.toBe('extra data')
   })
 
   test('finds ZIP archives with comments', async () => {
     const [entry] = await unzip(createZip([{ name: 'commented.txt', data: 'ok' }], 'archive comment'))
 
     expect(entry?.name).toBe('commented.txt')
-    await expect(blobText(entry)).resolves.toBe('ok')
+    await expect(entryText(entry)).resolves.toBe('ok')
   })
 
   test('supports Uint8Array views with non-zero byte offsets', async () => {
@@ -115,7 +115,7 @@ describe('unzip', () => {
     const view = padded.subarray(4, 4 + archive.byteLength)
     const [entry] = await unzip(view)
 
-    await expect(blobText(entry)).resolves.toBe('offset-safe')
+    await expect(entryText(entry)).resolves.toBe('offset-safe')
   })
 
   test('reports unsupported compression methods per file', async () => {
@@ -177,7 +177,7 @@ describe('unzip', () => {
 
     expect(entry?.name).toBe('target.txt')
     expect(entry?.error).toBeUndefined()
-    await expect(blobText(entry)).resolves.toBe('target content')
+    await expect(entryText(entry)).resolves.toBe('target content')
   })
 
   test('extracts one entry by regex selector', async () => {
@@ -189,7 +189,7 @@ describe('unzip', () => {
       /report\.json$/,
     )
 
-    await expect(blobText(entry)).resolves.toBe('{"ok":true}')
+    await expect(entryText(entry)).resolves.toBe('{"ok":true}')
   })
 
   test('extracts one entry as bytes for backend consumers', async () => {
@@ -212,7 +212,7 @@ describe('unzip', () => {
     )
 
     expect(entries.map((entry) => entry.name)).toEqual(['a.txt', 'nested/c.txt'])
-    await expect(Promise.all(entries.map(blobText))).resolves.toEqual(['a', 'c'])
+    await expect(Promise.all(entries.map(entryText))).resolves.toEqual(['a', 'c'])
   })
 
   test('returns an empty list for an empty selector array', async () => {
@@ -231,7 +231,7 @@ describe('unzip', () => {
     )
 
     expect(entries.map((entry) => entry.name)).toEqual(['b.txt'])
-    await expect(Promise.all(entries.map(blobText))).resolves.toEqual(['b'])
+    await expect(Promise.all(entries.map(entryText))).resolves.toEqual(['b'])
   })
 
   test('does not duplicate entries when multiple selectors match the same file', async () => {
@@ -258,7 +258,7 @@ describe('unzip', () => {
     )
 
     expect(entries.map((entry) => entry.name)).toEqual(['alpha.txt', 'gamma.txt'])
-    await expect(Promise.all(entries.map(blobText))).resolves.toEqual(['alpha', 'gamma'])
+    await expect(Promise.all(entries.map(entryText))).resolves.toEqual(['alpha', 'gamma'])
   })
 
   test('returns selected directories without extracted data', async () => {
@@ -274,7 +274,7 @@ describe('unzip', () => {
     expect(entries[0]?.isDirectory).toBe(true)
     expect(entries[0]?.bytes).toBeUndefined()
     expect(entries[0]?.blob).toBeUndefined()
-    await expect(blobText(entries[1])).resolves.toBe('file')
+    await expect(entryText(entries[1])).resolves.toBe('file')
   })
 
   test('reports unsupported compression for selected entries in an array', async () => {
@@ -290,7 +290,7 @@ describe('unzip', () => {
     expect(entries[0]?.bytes).toBeUndefined()
     expect(entries[0]?.blob).toBeUndefined()
     expect(entries[0]?.error).toBe('Compression method 12 is not supported.')
-    await expect(blobText(entries[1])).resolves.toBe('ok')
+    await expect(entryText(entries[1])).resolves.toBe('ok')
   })
 
   test('extracts one entry by predicate selector', async () => {
@@ -303,7 +303,7 @@ describe('unzip', () => {
     )
 
     expect(entry?.name).toBe('large.txt')
-    await expect(blobText(entry)).resolves.toBe('large text content')
+    await expect(entryText(entry)).resolves.toBe('large text content')
   })
 
   test('returns undefined when a selected entry is missing', async () => {
@@ -324,7 +324,7 @@ describe('unzip', () => {
 
     expect(entry?.name).toBe('target.txt')
     expect(entry?.error).toBeUndefined()
-    await expect(blobText(entry)).resolves.toBe('target from blob')
+    await expect(entryText(entry)).resolves.toBe('target from blob')
     expect(blob.slices.length).toBe(4)
     expect(blob.slices.every((slice) => slice.start !== 0 || slice.end !== archive.byteLength)).toBe(true)
   })
@@ -339,7 +339,7 @@ describe('unzip', () => {
     const entries = await extractZipEntry(blob, ['one.txt', 'three.txt'])
 
     expect(entries.map((entry) => entry.name)).toEqual(['one.txt', 'three.txt'])
-    await expect(Promise.all(entries.map(blobText))).resolves.toEqual(['one', 'three'])
+    await expect(Promise.all(entries.map(entryText))).resolves.toEqual(['one', 'three'])
   })
 
   test('handles empty and missing selector arrays for Blob entries', async () => {
@@ -363,24 +363,24 @@ describe('unzip', () => {
     expect(entries[0]?.bytes).toBeUndefined()
     expect(entries[0]?.blob).toBeUndefined()
     expect(entries[1]?.error).toBe('Compression method 12 is not supported.')
-    await expect(blobText(entries[2])).resolves.toBe('file')
+    await expect(entryText(entries[2])).resolves.toBe('file')
   })
 })
 
-async function blobText(entry: ZipEntry | undefined): Promise<string> {
-  if (!entry?.blob) {
-    throw new Error('Expected entry to have a blob.')
+async function entryText(entry: ZipEntry | undefined): Promise<string> {
+  if (!entry?.bytes) {
+    throw new Error('Expected entry to have bytes.')
   }
 
-  return entry.blob.text()
+  return new TextDecoder().decode(entry.bytes)
 }
 
-async function blobBytes(entry: ZipEntry | undefined): Promise<Uint8Array> {
-  if (!entry?.blob) {
-    throw new Error('Expected entry to have a blob.')
+async function entryBytes(entry: ZipEntry | undefined): Promise<Uint8Array> {
+  if (!entry?.bytes) {
+    throw new Error('Expected entry to have bytes.')
   }
 
-  return new Uint8Array(await entry.blob.arrayBuffer())
+  return entry.bytes
 }
 
 function createZip(entries: ZipFixtureEntry[], comment = ''): Uint8Array {
