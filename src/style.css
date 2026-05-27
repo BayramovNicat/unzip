@@ -122,7 +122,3 @@
     @apply bg-background text-foreground;
   }
 }
-
-@utility content-auto {
-  content-visibility: auto;
-}
