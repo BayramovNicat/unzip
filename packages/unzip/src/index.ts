@@ -5,12 +5,16 @@ export type ZipEntry = {
   method: number
   localHeaderOffset: number
   isDirectory: boolean
+  bytes?: Uint8Array
   blob?: Blob
   error?: string
 }
 
 export type ZipEntrySelector = string | RegExp | ((entry: ZipEntry) => boolean)
 export type ZipSource = Uint8Array | Blob
+type NodeZlib = {
+  inflateRaw(input: Uint8Array, callback: (error: Error | null, data: Uint8Array) => void): void
+}
 
 const decoder = new TextDecoder()
 const maxCommentLength = 0xffff
@@ -48,11 +52,6 @@ export function listZipEntries(bytes: Uint8Array): ZipEntry[] {
   return entries
 }
 
-export async function listZipEntriesFromBlob(blob: Blob): Promise<ZipEntry[]> {
-  const centralDirectory = await readBlobCentralDirectory(blob)
-  return readCentralDirectoryEntries(centralDirectory.bytes, centralDirectory.totalEntries)
-}
-
 export function findZipEntry(bytes: Uint8Array, selector: ZipEntrySelector): ZipEntry | undefined {
   const view = toView(bytes)
   const eocdOffset = findEndOfCentralDirectory(view)
@@ -73,13 +72,8 @@ export function findZipEntry(bytes: Uint8Array, selector: ZipEntrySelector): Zip
   return undefined
 }
 
-export async function findZipEntryFromBlob(blob: Blob, selector: ZipEntrySelector): Promise<ZipEntry | undefined> {
-  const centralDirectory = await readBlobCentralDirectory(blob)
-  return findEntryInCentralDirectory(centralDirectory.bytes, centralDirectory.totalEntries, selector)
-}
-
 export async function extractZipEntry(source: ZipSource, selector: ZipEntrySelector): Promise<ZipEntry | undefined> {
-  if (source instanceof Blob) {
+  if (isBlob(source)) {
     return extractZipEntryFromBlob(source, selector)
   }
 
@@ -93,7 +87,7 @@ export async function extractZipEntry(source: ZipSource, selector: ZipEntrySelec
   return entry
 }
 
-export async function extractZipEntryFromBlob(blob: Blob, selector: ZipEntrySelector): Promise<ZipEntry | undefined> {
+async function extractZipEntryFromBlob(blob: Blob, selector: ZipEntrySelector): Promise<ZipEntry | undefined> {
   const entry = await findZipEntryFromBlob(blob, selector)
 
   if (!entry || entry.isDirectory) {
@@ -102,30 +96,6 @@ export async function extractZipEntryFromBlob(blob: Blob, selector: ZipEntrySele
 
   await extractBlobIntoEntry(blob, entry)
   return entry
-}
-
-export async function extractZipEntryBlob(source: ZipSource, selector: ZipEntrySelector): Promise<Blob | undefined> {
-  const entry = await extractZipEntry(source, selector)
-
-  if (entry?.error) {
-    throw new Error(entry.error)
-  }
-
-  return entry?.blob
-}
-
-function readCentralDirectoryEntries(bytes: Uint8Array, totalEntries: number): ZipEntry[] {
-  const view = toView(bytes)
-  const entries: ZipEntry[] = []
-  let offset = 0
-
-  for (let index = 0; index < totalEntries; index += 1) {
-    const { entry, nextOffset } = readCentralDirectoryEntry(bytes, view, offset)
-    entries.push(entry)
-    offset = nextOffset
-  }
-
-  return entries
 }
 
 function findEntryInCentralDirectory(
@@ -147,6 +117,11 @@ function findEntryInCentralDirectory(
   }
 
   return undefined
+}
+
+async function findZipEntryFromBlob(blob: Blob, selector: ZipEntrySelector): Promise<ZipEntry | undefined> {
+  const centralDirectory = await readBlobCentralDirectory(blob)
+  return findEntryInCentralDirectory(centralDirectory.bytes, centralDirectory.totalEntries, selector)
 }
 
 function readCentralDirectoryEntry(
@@ -183,13 +158,13 @@ function readCentralDirectoryEntry(
 
 async function extractIntoEntry(bytes: Uint8Array, entry: ZipEntry): Promise<void> {
   try {
-    entry.blob = await extractEntry(bytes, entry)
+    setEntryBytes(entry, await extractEntryBytes(bytes, entry))
   } catch (error) {
     entry.error = error instanceof Error ? error.message : 'Could not extract this file.'
   }
 }
 
-async function extractEntry(bytes: Uint8Array, entry: ZipEntry): Promise<Blob> {
+async function extractEntryBytes(bytes: Uint8Array, entry: ZipEntry): Promise<Uint8Array> {
   const view = toView(bytes)
   const offset = entry.localHeaderOffset
 
@@ -204,7 +179,7 @@ async function extractEntry(bytes: Uint8Array, entry: ZipEntry): Promise<Blob> {
   const compressed = bytes.subarray(dataStart, dataEnd)
 
   if (entry.method === 0) {
-    return new Blob([copyBytes(compressed)])
+    return copyUint8Array(compressed)
   }
 
   if (entry.method === 8) {
@@ -216,13 +191,13 @@ async function extractEntry(bytes: Uint8Array, entry: ZipEntry): Promise<Blob> {
 
 async function extractBlobIntoEntry(blob: Blob, entry: ZipEntry): Promise<void> {
   try {
-    entry.blob = await extractBlobEntry(blob, entry)
+    setEntryBytes(entry, await extractBlobEntryBytes(blob, entry))
   } catch (error) {
     entry.error = error instanceof Error ? error.message : 'Could not extract this file.'
   }
 }
 
-async function extractBlobEntry(blob: Blob, entry: ZipEntry): Promise<Blob> {
+async function extractBlobEntryBytes(blob: Blob, entry: ZipEntry): Promise<Uint8Array> {
   const fixedHeader = await readBlobSlice(blob, entry.localHeaderOffset, entry.localHeaderOffset + 30)
   const fixedHeaderView = toView(fixedHeader)
 
@@ -237,7 +212,7 @@ async function extractBlobEntry(blob: Blob, entry: ZipEntry): Promise<Blob> {
   const compressed = await readBlobSlice(blob, dataStart, dataEnd)
 
   if (entry.method === 0) {
-    return new Blob([copyBytes(compressed)])
+    return copyUint8Array(compressed)
   }
 
   if (entry.method === 8) {
@@ -280,13 +255,82 @@ async function readBlobSlice(blob: Blob, start: number, end: number): Promise<Ui
   return new Uint8Array(await blob.slice(start, end).arrayBuffer())
 }
 
-async function inflateRaw(bytes: Uint8Array): Promise<Blob> {
-  if (!('DecompressionStream' in globalThis)) {
-    throw new Error('This browser does not support native decompression.')
+async function inflateRaw(bytes: Uint8Array): Promise<Uint8Array> {
+  const browserInflated = await inflateRawWithCompressionStream(bytes)
+
+  if (browserInflated) {
+    return browserInflated
   }
 
-  const stream = new Blob([copyBytes(bytes)]).stream().pipeThrough(new DecompressionStream('deflate-raw'))
-  return new Response(stream).blob()
+  const backendInflated = await inflateRawWithNode(bytes)
+
+  if (backendInflated) {
+    return backendInflated
+  }
+
+  throw new Error('This runtime does not support native decompression.')
+}
+
+async function inflateRawWithCompressionStream(bytes: Uint8Array): Promise<Uint8Array | undefined> {
+  if (
+    !hasBlobConstructor() ||
+    !('DecompressionStream' in globalThis) ||
+    !('Response' in globalThis)
+  ) {
+    return undefined
+  }
+
+  try {
+    const stream = new Blob([copyBytes(bytes)]).stream().pipeThrough(new DecompressionStream('deflate-raw'))
+    return new Uint8Array(await new Response(stream).arrayBuffer())
+  } catch {
+    return undefined
+  }
+}
+
+async function inflateRawWithNode(bytes: Uint8Array): Promise<Uint8Array | undefined> {
+  const zlib = await loadNodeZlib()
+
+  if (!zlib) {
+    return undefined
+  }
+
+  return new Promise<Uint8Array>((resolve, reject) => {
+    zlib.inflateRaw(copyUint8Array(bytes), (error, data) => {
+      if (error) {
+        reject(error)
+        return
+      }
+
+      resolve(copyUint8Array(data))
+    })
+  })
+}
+
+async function loadNodeZlib(): Promise<NodeZlib | undefined> {
+  const specifier = 'node:zlib'
+
+  try {
+    return (await import(specifier)) as NodeZlib
+  } catch {
+    return undefined
+  }
+}
+
+function setEntryBytes(entry: ZipEntry, bytes: Uint8Array): void {
+  entry.bytes = bytes
+
+  if (hasBlobConstructor()) {
+    entry.blob = new Blob([copyBytes(bytes)])
+  }
+}
+
+function isBlob(source: ZipSource): source is Blob {
+  return hasBlobConstructor() && source instanceof Blob
+}
+
+function hasBlobConstructor(): boolean {
+  return typeof Blob !== 'undefined'
 }
 
 function findEndOfCentralDirectory(view: DataView): number {
@@ -307,4 +351,8 @@ function toView(bytes: Uint8Array): DataView {
 
 function copyBytes(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+}
+
+function copyUint8Array(bytes: Uint8Array): Uint8Array {
+  return new Uint8Array(copyBytes(bytes))
 }

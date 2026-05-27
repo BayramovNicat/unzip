@@ -2,10 +2,8 @@ import { describe, expect, test } from 'bun:test'
 import { deflateRawSync } from 'node:zlib'
 import {
   extractZipEntry,
-  extractZipEntryBlob,
   findZipEntry,
   listZipEntries,
-  listZipEntriesFromBlob,
   unzip,
   type ZipEntry,
 } from '@holmityd/unzip'
@@ -53,6 +51,7 @@ describe('unzip', () => {
     const bytes = new Uint8Array([0, 1, 2, 3, 254, 255])
     const [entry] = await unzip(createZip([{ name: 'image.bin', data: bytes }]))
 
+    expect(entry?.bytes).toEqual(bytes)
     await expect(blobBytes(entry)).resolves.toEqual(bytes)
   })
 
@@ -182,7 +181,7 @@ describe('unzip', () => {
   })
 
   test('extracts one entry by regex selector', async () => {
-    const blob = await extractZipEntryBlob(
+    const entry = await extractZipEntry(
       createZip([
         { name: 'a.txt', data: 'a' },
         { name: 'nested/report.json', data: '{"ok":true}', method: 8 },
@@ -190,7 +189,16 @@ describe('unzip', () => {
       /report\.json$/,
     )
 
-    await expect(blob?.text()).resolves.toBe('{"ok":true}')
+    await expect(blobText(entry)).resolves.toBe('{"ok":true}')
+  })
+
+  test('extracts one entry as bytes for backend consumers', async () => {
+    const entry = await extractZipEntry(
+      createZip([{ name: 'server/report.txt', data: 'backend bytes', method: 8 }]),
+      'server/report.txt',
+    )
+
+    expect(entry?.bytes).toEqual(textEncoder.encode('backend bytes'))
   })
 
   test('extracts one entry by predicate selector', async () => {
@@ -211,16 +219,6 @@ describe('unzip', () => {
 
     expect(findZipEntry(archive, 'missing.txt')).toBeUndefined()
     await expect(extractZipEntry(archive, 'missing.txt')).resolves.toBeUndefined()
-    await expect(extractZipEntryBlob(archive, 'missing.txt')).resolves.toBeUndefined()
-  })
-
-  test('lists entries from Blob without extracting file data', async () => {
-    const archive = new Blob([copyBytes(createZip([{ name: 'blob-meta.txt', data: 'blob metadata', method: 8 }]))])
-    const entries = await listZipEntriesFromBlob(archive)
-
-    expect(entries).toHaveLength(1)
-    expect(entries[0]?.name).toBe('blob-meta.txt')
-    expect(entries[0]?.blob).toBeUndefined()
   })
 
   test('extracts one Blob entry without reading the whole archive', async () => {
