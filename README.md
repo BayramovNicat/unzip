@@ -4,6 +4,8 @@ A tiny TypeScript ZIP reader for browsers and backend runtimes.
 
 It can list files, find one file, or extract ZIP entries. File data is returned on each extracted entry as `bytes`, and also as `blob` in browsers.
 
+Browser test app: https://unzip-fawn.vercel.app/
+
 ```sh
 npm install @holmityd/unzip
 ```
