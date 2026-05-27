@@ -215,7 +215,7 @@ describe('unzip', () => {
   })
 
   test('lists entries from Blob without extracting file data', async () => {
-    const archive = new Blob([createZip([{ name: 'blob-meta.txt', data: 'blob metadata', method: 8 }])])
+    const archive = new Blob([copyBytes(createZip([{ name: 'blob-meta.txt', data: 'blob metadata', method: 8 }]))])
     const entries = await listZipEntriesFromBlob(archive)
 
     expect(entries).toHaveLength(1)
@@ -229,7 +229,7 @@ describe('unzip', () => {
       { name: 'target.txt', data: 'target from blob', method: 8 },
       { name: 'ignored.txt', data: 'ignored' },
     ])
-    const blob = new TrackingBlob([archive])
+    const blob = new TrackingBlob([copyBytes(archive)])
     const entry = await extractZipEntry(blob, 'target.txt')
 
     expect(entry?.name).toBe('target.txt')
@@ -384,6 +384,10 @@ function endOfCentralDirectory(options: {
 
 function toBytes(data: string | Uint8Array): Uint8Array {
   return typeof data === 'string' ? textEncoder.encode(data) : data
+}
+
+function copyBytes(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
 }
 
 function concat(parts: Uint8Array[]): Uint8Array {

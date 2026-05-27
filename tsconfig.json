@@ -3,7 +3,7 @@
     "target": "es2023",
     "module": "esnext",
     "lib": ["ES2023", "DOM"],
-    "types": ["vite/client"],
+    "types": ["vite/client", "node", "bun"],
     "skipLibCheck": true,
 
     /* Bundler mode */
@@ -19,5 +19,5 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "packages/unzip/src"]
+  "include": ["src", "packages/unzip/src", "tests"]
 }
