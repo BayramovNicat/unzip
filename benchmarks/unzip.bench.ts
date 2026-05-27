@@ -1,11 +1,13 @@
-import { performance } from 'node:perf_hooks'
-import { deflateRawSync } from 'node:zlib'
 import { extractZipEntry, findZipEntry, listZipEntries, unzip } from '@holmityd/unzip'
 
 type ZipFixtureEntry = {
   name: string
   data: Uint8Array
   method: number
+}
+
+type NodeZlib = {
+  deflateRawSync(input: Uint8Array): Uint8Array
 }
 
 type Benchmark = {
@@ -24,6 +26,7 @@ type BenchmarkResult = {
 }
 
 const textEncoder = new TextEncoder()
+const { deflateRawSync } = await loadNodeZlib()
 const smallArchive = createZip(createEntries({ count: 100, size: 512, method: 0 }))
 const mixedArchive = createZip(createEntries({ count: 250, size: 1024, method: 'mixed' }))
 const largeArchive = createZip(createEntries({ count: 1000, size: 2048, method: 'mixed' }))
@@ -276,4 +279,9 @@ function pad(value: string, length: number): string {
 
 function padLeft(value: string, length: number): string {
   return value.padStart(length, ' ')
+}
+
+async function loadNodeZlib(): Promise<NodeZlib> {
+  const specifier = 'node:zlib'
+  return (await import(/* @vite-ignore */ specifier)) as NodeZlib
 }

@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test'
-import { deflateRawSync } from 'node:zlib'
 import {
   extractZipEntry,
   findZipEntry,
@@ -16,7 +15,12 @@ type ZipFixtureEntry = {
   comment?: string
 }
 
+type NodeZlib = {
+  deflateRawSync(input: Uint8Array): Uint8Array
+}
+
 const textEncoder = new TextEncoder()
+const { deflateRawSync } = await loadNodeZlib()
 
 describe('unzip', () => {
   test('rejects input that is not a ZIP archive', async () => {
@@ -553,4 +557,9 @@ class TrackingBlob extends Blob {
 
     return super.slice(start, end, contentType)
   }
+}
+
+async function loadNodeZlib(): Promise<NodeZlib> {
+  const specifier = 'node:zlib'
+  return (await import(/* @vite-ignore */ specifier)) as NodeZlib
 }
