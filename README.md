@@ -145,3 +145,11 @@ type ZipSource = Uint8Array | Blob
 - Uses `DecompressionStream` in browsers when available.
 - Uses `node:zlib` as a backend fallback.
 - ZIP64 and encrypted ZIP files are not supported.
+
+## Benchmarks
+
+```sh
+bun run bench
+```
+
+The benchmark script measures listing, finding first and last entries, extracting one entry, extracting a few selected entries, and unzipping all entries from generated ZIP archives.
