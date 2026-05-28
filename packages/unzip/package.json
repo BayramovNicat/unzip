@@ -1,6 +1,6 @@
 {
   "name": "@holmityd/unzip",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A tiny TypeScript ZIP reader for browsers and backend runtimes.",
   "type": "module",
   "license": "MIT",
