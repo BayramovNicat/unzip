@@ -42,10 +42,7 @@ type CentralDirectory = {
   totalEntries: number
   offset: number
 }
-type SelectorMatcher = {
-  names: Set<string>
-  selectors: ZipEntrySelector[]
-}
+type ReadSlice = (start: number, end: number) => Uint8Array | Promise<Uint8Array>
 type NodeZlib = {
   inflateRaw(input: Uint8Array, callback: (error: Error | null, data: Uint8Array) => void): void
 }
@@ -67,7 +64,7 @@ let nodeZlibPromise: Promise<NodeZlib | undefined> | undefined
 export async function unzip(bytes: Uint8Array): Promise<ZipEntry[]> {
   const entries = listZipEntries(bytes)
 
-  await extractEntries(entries, (entry) => extractIntoEntry(bytes, entry))
+  await extractEntries(bytes, entries)
   return entries
 }
 
@@ -110,57 +107,34 @@ export async function extractZipEntry(
   source: ZipSource,
   selector: ZipEntrySelection,
 ): Promise<ZipEntry | ZipEntry[] | undefined> {
-  if (isBlob(source)) {
-    return extractZipEntryFromBlob(source, selector)
-  }
+  const centralDirectory = await readSourceCentralDirectory(source)
 
   if (isSelectorArray(selector)) {
-    return extractZipEntriesFromBytes(source, selector)
+    return extractSelectedEntries(source, centralDirectory, selector)
   }
 
-  const entry = findZipEntry(source, selector)
-
-  if (!entry || entry.isDirectory) {
-    return entry
-  }
-
-  await extractIntoEntry(source, entry)
+  const entry = findCentralDirectoryEntry(centralDirectory, selector)
+  await extractEntry(source, entry)
   return entry
 }
 
-async function extractZipEntryFromBlob(
-  blob: Blob,
-  selector: ZipEntrySelection,
-): Promise<ZipEntry | ZipEntry[] | undefined> {
-  if (isSelectorArray(selector)) {
-    return extractZipEntriesFromBlob(blob, selector)
-  }
-
-  const entry = await findZipEntryFromBlob(blob, selector)
-
-  if (!entry || entry.isDirectory) {
-    return entry
-  }
-
-  await extractBlobIntoEntry(blob, entry)
-  return entry
-}
-
-async function extractZipEntriesFromBytes(
-  bytes: Uint8Array,
+async function extractSelectedEntries(
+  source: ZipSource,
+  centralDirectory: CentralDirectory,
   selectors: readonly ZipEntrySelector[],
 ): Promise<ZipEntry[]> {
   if (selectors.length === 0) {
     return []
   }
 
-  const matcher = createSelectorMatcher(selectors)
-  const entries = readCentralDirectoryEntries(readCentralDirectory(bytes), (entry) =>
-    matchesSelectorMatcher(entry, matcher),
-  )
+  const entries = readCentralDirectoryEntries(centralDirectory, (entry) => matchesAnyEntry(entry, selectors))
 
-  await extractEntries(entries, (entry) => extractIntoEntry(bytes, entry))
+  await extractEntries(source, entries)
   return entries
+}
+
+function readSourceCentralDirectory(source: ZipSource): CentralDirectory | Promise<CentralDirectory> {
+  return isBlob(source) ? readBlobCentralDirectory(source) : readCentralDirectory(source)
 }
 
 function readCentralDirectory(bytes: Uint8Array): CentralDirectory {
@@ -215,24 +189,6 @@ function findCentralDirectoryEntry(
   return undefined
 }
 
-async function findZipEntryFromBlob(blob: Blob, selector: ZipEntrySelector): Promise<ZipEntry | undefined> {
-  return findCentralDirectoryEntry(await readBlobCentralDirectory(blob), selector)
-}
-
-async function extractZipEntriesFromBlob(blob: Blob, selectors: readonly ZipEntrySelector[]): Promise<ZipEntry[]> {
-  if (selectors.length === 0) {
-    return []
-  }
-
-  const matcher = createSelectorMatcher(selectors)
-  const entries = readCentralDirectoryEntries(await readBlobCentralDirectory(blob), (entry) =>
-    matchesSelectorMatcher(entry, matcher),
-  )
-
-  await extractEntries(entries, (entry) => extractBlobIntoEntry(blob, entry))
-  return entries
-}
-
 function readCentralDirectoryEntry(
   bytes: Uint8Array,
   view: DataView,
@@ -265,53 +221,28 @@ function readCentralDirectoryEntry(
   }
 }
 
-async function extractIntoEntry(bytes: Uint8Array, entry: ZipEntry): Promise<void> {
+async function extractEntries(source: ZipSource, entries: ZipEntry[]): Promise<void> {
+  await Promise.all(entries.map((entry) => extractEntry(source, entry)))
+}
+
+async function extractEntry(source: ZipSource, entry: ZipEntry | undefined): Promise<void> {
+  if (!entry || entry.isDirectory) {
+    return
+  }
+
   try {
-    setEntryBytes(entry, await extractEntryBytes(bytes, entry))
+    setEntryBytes(entry, await extractEntryBytes(entry, readSourceSlice(source)))
   } catch (error) {
     entry.error = error instanceof Error ? error.message : 'Could not extract this file.'
   }
 }
 
-async function extractEntryBytes(bytes: Uint8Array, entry: ZipEntry): Promise<Uint8Array> {
-  const view = toView(bytes)
+async function extractEntryBytes(
+  entry: ZipEntry,
+  read: ReadSlice,
+): Promise<Uint8Array> {
   const offset = entry.localHeaderOffset
-
-  if (view.getUint32(offset, true) !== localFileSignature) {
-    throw new Error('Local file header is missing.')
-  }
-
-  const nameLength = view.getUint16(offset + 26, true)
-  const extraLength = view.getUint16(offset + 28, true)
-  const dataStart = offset + 30 + nameLength + extraLength
-  const dataEnd = dataStart + entry.compressedSize
-  const compressed = bytes.subarray(dataStart, dataEnd)
-
-  if (entry.method === 0) {
-    return copyUint8Array(compressed)
-  }
-
-  if (entry.method === 8) {
-    return inflateRaw(compressed)
-  }
-
-  throw new Error(`Compression method ${entry.method} is not supported.`)
-}
-
-async function extractBlobIntoEntry(blob: Blob, entry: ZipEntry): Promise<void> {
-  try {
-    setEntryBytes(entry, await extractBlobEntryBytes(blob, entry))
-  } catch (error) {
-    entry.error = error instanceof Error ? error.message : 'Could not extract this file.'
-  }
-}
-
-async function extractEntries(entries: ZipEntry[], extract: (entry: ZipEntry) => Promise<void>): Promise<void> {
-  await Promise.all(entries.filter((entry) => !entry.isDirectory).map(extract))
-}
-
-async function extractBlobEntryBytes(blob: Blob, entry: ZipEntry): Promise<Uint8Array> {
-  const fixedHeader = await readBlobSlice(blob, entry.localHeaderOffset, entry.localHeaderOffset + 30)
+  const fixedHeader = await read(offset, offset + 30)
   const fixedHeaderView = toView(fixedHeader)
 
   if (fixedHeaderView.getUint32(0, true) !== localFileSignature) {
@@ -322,7 +253,7 @@ async function extractBlobEntryBytes(blob: Blob, entry: ZipEntry): Promise<Uint8
   const extraLength = fixedHeaderView.getUint16(28, true)
   const dataStart = entry.localHeaderOffset + 30 + nameLength + extraLength
   const dataEnd = dataStart + entry.compressedSize
-  const compressed = await readBlobSlice(blob, dataStart, dataEnd)
+  const compressed = await read(dataStart, dataEnd)
 
   if (entry.method === 0) {
     return copyUint8Array(compressed)
@@ -333,6 +264,10 @@ async function extractBlobEntryBytes(blob: Blob, entry: ZipEntry): Promise<Uint8
   }
 
   throw new Error(`Compression method ${entry.method} is not supported.`)
+}
+
+function readSourceSlice(source: ZipSource): ReadSlice {
+  return isBlob(source) ? (start, end) => readBlobSlice(source, start, end) : (start, end) => source.subarray(start, end)
 }
 
 function matchesEntry(entry: ZipEntry, selector: ZipEntrySelector): boolean {
@@ -348,23 +283,8 @@ function matchesEntry(entry: ZipEntry, selector: ZipEntrySelector): boolean {
   return selector(entry)
 }
 
-function createSelectorMatcher(selectors: readonly ZipEntrySelector[]): SelectorMatcher {
-  const names = new Set<string>()
-  const rest: ZipEntrySelector[] = []
-
-  for (const selector of selectors) {
-    if (typeof selector === 'string') {
-      names.add(selector)
-    } else {
-      rest.push(selector)
-    }
-  }
-
-  return { names, selectors: rest }
-}
-
-function matchesSelectorMatcher(entry: ZipEntry, matcher: SelectorMatcher): boolean {
-  return matcher.names.has(entry.name) || matcher.selectors.some((selector) => matchesEntry(entry, selector))
+function matchesAnyEntry(entry: ZipEntry, selectors: readonly ZipEntrySelector[]): boolean {
+  return selectors.some((selector) => matchesEntry(entry, selector))
 }
 
 function isSelectorArray(selector: ZipEntrySelection): selector is readonly ZipEntrySelector[] {
