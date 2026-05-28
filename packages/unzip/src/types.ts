@@ -45,8 +45,6 @@ export type CentralDirectory = {
   offset: number
 }
 
-export type ReadSlice = (start: number, end: number) => Uint8Array | Promise<Uint8Array>
-
 export type NodeZlib = {
   inflateRaw(input: Uint8Array, callback: (error: Error | null, data: Uint8Array) => void): void
 }
